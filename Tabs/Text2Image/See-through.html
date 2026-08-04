@@ -1,0 +1,72 @@
+<div class="seethrough-container">
+    <div class="seethrough-controls">
+        <h3 class="translate">See-through — Anime Layer Decomposition</h3>
+        <p class="seethrough-hint translate">Upload a single anime illustration to decompose it into depth-ordered semantic layers (hair, face, eyes, clothing, ...) and export a layered PSD for Live2D. First run downloads several GB of models and needs a lot of VRAM.</p>
+        <div class="seethrough-row">
+            <input type="file" id="seethrough_file" accept="image/*" />
+        </div>
+        <div class="seethrough-row seethrough-two">
+            <label class="translate">LayerDiff Model<select id="seethrough_layer_model"></select></label>
+            <label class="translate">Depth Model<select id="seethrough_depth_model"></select></label>
+        </div>
+        <div class="seethrough-row seethrough-two">
+            <label class="translate">Quantization<select id="seethrough_quant">
+                <option value="none">none (bf16)</option>
+                <option value="nf4">nf4 (~8GB VRAM)</option>
+            </select></label>
+            <label class="translate">Seed<input type="number" id="seethrough_seed" value="42" min="0" /></label>
+        </div>
+        <div class="seethrough-row seethrough-two">
+            <label class="translate">Resolution<input type="number" id="seethrough_resolution" value="1280" step="64" min="512" max="2048" /></label>
+            <label class="translate">Steps<input type="number" id="seethrough_steps" value="30" min="1" max="100" /></label>
+        </div>
+        <div class="seethrough-row seethrough-two">
+            <label class="translate">Depth Resolution (-1 = same)<input type="number" id="seethrough_resolution_depth" value="-1" step="64" min="-1" max="2048" /></label>
+        </div>
+        <div class="seethrough-row seethrough-checks">
+            <label><input type="checkbox" id="seethrough_tblr" checked /> <span class="translate">Split L/R symmetric parts</span></label>
+            <label><input type="checkbox" id="seethrough_lama" checked /> <span class="translate">LaMa hair inpaint</span></label>
+            <label><input type="checkbox" id="seethrough_cache" checked /> <span class="translate">Cache tag embeds</span></label>
+            <label><input type="checkbox" id="seethrough_offload" /> <span class="translate">Group offload (low VRAM)</span></label>
+            <label><input type="checkbox" id="seethrough_autodl" checked /> <span class="translate">Auto-download models</span></label>
+        </div>
+        <details class="seethrough-adv">
+            <summary class="translate">Advanced (custom checkpoints)</summary>
+            <div class="seethrough-row"><label class="translate">VAE ckpt path<input type="text" id="seethrough_vae" placeholder="optional .safetensors path" /></label></div>
+            <div class="seethrough-row"><label class="translate">UNet ckpt path<input type="text" id="seethrough_unet" placeholder="optional checkpoint path" /></label></div>
+        </details>
+        <div class="seethrough-row">
+            <button id="seethrough_run" class="basic-button translate">Decompose</button>
+        </div>
+        <div class="seethrough-status" id="seethrough_status"></div>
+        <div class="seethrough-stages" id="seethrough_stages">
+            <span class="seethrough-stage" data-stage="layers">Layers</span>
+            <span class="seethrough-stage-sep">&rsaquo;</span>
+            <span class="seethrough-stage" data-stage="depth">Depth</span>
+            <span class="seethrough-stage-sep">&rsaquo;</span>
+            <span class="seethrough-stage" data-stage="postprocess">Post-process</span>
+            <span class="seethrough-stage-sep">&rsaquo;</span>
+            <span class="seethrough-stage" data-stage="finalize">Finalize</span>
+        </div>
+        <div class="seethrough-progress"><div class="seethrough-progress-bar" id="seethrough_progress_bar"></div></div>
+    </div>
+    <div class="seethrough-output">
+        <div class="seethrough-preview-wrap">
+            <div class="seethrough-preview-col">
+                <h4 class="translate">Input</h4>
+                <img id="seethrough_input_preview" class="seethrough-preview-img" alt="input preview" />
+            </div>
+            <div class="seethrough-preview-col">
+                <h4 class="translate">Blended preview</h4>
+                <img id="seethrough_blended_preview" class="seethrough-preview-img" alt="blended preview" />
+            </div>
+        </div>
+        <div class="seethrough-downloads" id="seethrough_downloads" style="display:none;">
+            <button id="seethrough_dl_psd" class="basic-button translate">Download PSD</button>
+            <button id="seethrough_dl_depth_psd" class="basic-button translate">Download Depth PSD</button>
+            <button id="seethrough_dl_zip" class="basic-button translate">Download layers (ZIP)</button>
+        </div>
+        <h4 class="translate">Layers</h4>
+        <div class="seethrough-gallery" id="seethrough_gallery"></div>
+    </div>
+</div>
