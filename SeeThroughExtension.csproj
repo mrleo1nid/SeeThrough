@@ -2,5 +2,12 @@
     <PropertyGroup>
         <AssemblyName>SeeThroughExtension</AssemblyName>
     </PropertyGroup>
+    <!-- SwarmUI builds extensions with a redirected intermediate path, so the default obj/bin excludes don't cover a
+         local obj/bin created by an IDE build. Exclude them explicitly so IDE-generated AssemblyInfo never gets
+         double-compiled (which causes CS0579 duplicate-attribute errors during Swarm's build). -->
+    <ItemGroup>
+        <Compile Remove="obj/**/*.cs" />
+        <Compile Remove="bin/**/*.cs" />
+    </ItemGroup>
     <Import Project="../../SwarmUI.extension.props" />
 </Project>
