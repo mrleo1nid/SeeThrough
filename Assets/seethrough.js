@@ -24,14 +24,32 @@ class SeeThroughTab {
         getRequiredElementById('seethrough_dl_psd').addEventListener('click', () => this.downloadPSD('rgba'));
         getRequiredElementById('seethrough_dl_depth_psd').addEventListener('click', () => this.downloadPSD('depth'));
         getRequiredElementById('seethrough_dl_zip').addEventListener('click', () => this.downloadZip());
+        getRequiredElementById('seethrough_install_btn').addEventListener('click', () => installFeatureById('seethrough', 'seethrough_install_row'));
         this.loadModels();
     }
 
-    /** Loads available LayerDiff and Depth model options into their dropdowns. */
-    loadModels() {
+    /**
+     * Loads available LayerDiff and Depth model options into their dropdowns, and updates the install-prompt visibility.
+     * While the ComfyUI backend is still starting up (backend_available == false) node-install state can't be determined,
+     * so the prompt is kept hidden and the check is retried until the backend is up (or the retry budget is exhausted).
+     */
+    loadModels(attempt = 0) {
         genericRequest('SeeThroughListModels', {}, data => {
             this.fillSelect('seethrough_layer_model', data.layer_models);
             this.fillSelect('seethrough_depth_model', data.depth_models);
+            let installRow = document.getElementById('seethrough_install_row');
+            if (!data.backend_available) {
+                if (installRow) {
+                    installRow.style.display = 'none';
+                }
+                if (attempt < 60) {
+                    setTimeout(() => this.loadModels(attempt + 1), 3000);
+                }
+                return;
+            }
+            if (installRow) {
+                installRow.style.display = data.nodes_installed ? 'none' : '';
+            }
         });
     }
 
@@ -126,6 +144,7 @@ class SeeThroughTab {
             'groupOffload': getRequiredElementById('seethrough_offload').checked,
             'cacheTagEmbeds': getRequiredElementById('seethrough_cache').checked,
             'autoDownload': getRequiredElementById('seethrough_autodl').checked,
+            'removeBackground': getRequiredElementById('seethrough_rembg').checked,
             'vaeCkpt': getRequiredElementById('seethrough_vae').value,
             'unetCkpt': getRequiredElementById('seethrough_unet').value
         };
@@ -160,7 +179,10 @@ class SeeThroughTab {
                 el.classList.remove('seethrough-stage-active');
                 el.classList.add('seethrough-stage-done');
             }
-            this.setStatus(`Done — ${this.manifest && this.manifest.layers ? this.manifest.layers.length : 0} layers.`);
+            let allLayers = (this.manifest && this.manifest.layers) || [];
+            let kept = allLayers.filter(l => !l.empty).length;
+            let hidden = allLayers.length - kept;
+            this.setStatus(`Done — ${kept} layers${hidden ? ` (${hidden} empty hidden)` : ''}.`);
             getRequiredElementById('seethrough_downloads').style.display = 'block';
             this.finish();
         }
@@ -188,7 +210,7 @@ class SeeThroughTab {
         let layers = this.manifest.layers.slice();
         layers.sort((a, b) => (b.depth_median || 0) - (a.depth_median || 0));
         for (let layer of layers) {
-            if (!layer.dataurl) {
+            if (layer.empty || !layer.dataurl) {
                 continue;
             }
             let item = createDiv(null, 'seethrough-layer-item');
@@ -236,6 +258,9 @@ class SeeThroughTab {
         let compositeCtx = composite.getContext('2d');
         let psdLayers = [];
         for (let layer of this.manifest.layers) {
+            if (layer.empty) {
+                continue;
+            }
             let src = layer[key];
             if (!src) {
                 continue;
@@ -299,6 +324,9 @@ class SeeThroughTab {
         };
         let manifestOut = { width: this.manifest.width, height: this.manifest.height, layers: [] };
         for (let layer of this.manifest.layers) {
+            if (layer.empty) {
+                continue;
+            }
             if (layer.dataurl) {
                 let fname = uniqueName(`${layer.name}.png`);
                 files.push({ name: fname, data: this.dataUrlToBytes(layer.dataurl) });

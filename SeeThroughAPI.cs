@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FreneticUtilities.FreneticExtensions;
 using Newtonsoft.Json.Linq;
+using SixLabors.ImageSharp.PixelFormats;
 using SwarmUI.Accounts;
 using SwarmUI.Builtin_ComfyUIBackend;
 using SwarmUI.Core;
@@ -16,42 +17,60 @@ namespace SeeThrough.SwarmExtension;
 
 public partial class SeeThroughExtension
 {
-    /// <summary>API route: lists the model options exposed by the See-through loader nodes (local folders + HuggingFace defaults).
-    /// Falls back to the built-in defaults if the node pack is not installed or the backend is unreachable.</summary>
+    /// <summary>API route: reports whether the See-through node pack is installed, and lists the model options exposed by the
+    /// loader nodes (local folders + HuggingFace defaults). Falls back to the built-in defaults if the node pack is not
+    /// installed or the backend is unreachable.</summary>
     public async Task<JObject> SeeThroughListModels(Session session)
     {
         JArray layerModels = new() { DefaultLayerDiffRepo };
         JArray depthModels = new() { DefaultDepthRepo };
+        bool installed = false;
         ComfyUIAPIAbstractBackend backend = ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault();
         if (backend is not null)
         {
-            layerModels = await GetNodeModelList(backend, "SeeThrough_LoadLayerDiffModel", DefaultLayerDiffRepo);
-            depthModels = await GetNodeModelList(backend, "SeeThrough_LoadDepthModel", DefaultDepthRepo);
+            (bool layerInstalled, JArray layerList) = await GetNodeInfo(backend, "SeeThrough_LoadLayerDiffModel", DefaultLayerDiffRepo);
+            installed = layerInstalled;
+            if (layerInstalled)
+            {
+                layerModels = layerList;
+            }
+            (bool depthInstalled, JArray depthList) = await GetNodeInfo(backend, "SeeThrough_LoadDepthModel", DefaultDepthRepo);
+            if (depthInstalled)
+            {
+                depthModels = depthList;
+            }
         }
         return new JObject()
         {
+            ["backend_available"] = backend is not null,
+            ["nodes_installed"] = installed,
             ["layer_models"] = layerModels,
             ["depth_models"] = depthModels
         };
     }
 
-    /// <summary>Queries a backend's object_info for a given node's "model" input options.</summary>
-    public static async Task<JArray> GetNodeModelList(ComfyUIAPIAbstractBackend backend, string node, string fallback)
+    /// <summary>Queries a backend's object_info for a given node. Returns whether the node exists (i.e. the node pack is
+    /// installed) and, if so, its "model" input options.</summary>
+    public static async Task<(bool, JArray)> GetNodeInfo(ComfyUIAPIAbstractBackend backend, string node, string fallback)
     {
         try
         {
             string raw = await ComfyUIAPIAbstractBackend.HttpClient.GetStringAsync($"{backend.APIAddress}/object_info/{node}", Program.GlobalProgramCancel);
             JObject parsed = raw.ParseToJson();
-            if (ComfyUIBackendExtension.TryGetRequiredInputs(parsed, node, "model", out JToken list) && list is JArray arr && arr.Count > 0)
+            if (parsed is not null && parsed.ContainsKey(node))
             {
-                return arr;
+                if (ComfyUIBackendExtension.TryGetRequiredInputs(parsed, node, "model", out JToken list) && list is JArray arr && arr.Count > 0)
+                {
+                    return (true, arr);
+                }
+                return (true, new JArray() { fallback });
             }
         }
         catch (Exception ex)
         {
-            Logs.Debug($"[See-through] Could not read model list for '{node}': {ex.Message}");
+            Logs.Debug($"[See-through] Could not read node info for '{node}': {ex.Message}");
         }
-        return new JArray() { fallback };
+        return (false, new JArray() { fallback });
     }
 
     /// <summary>API route (websocket): runs the full See-through decomposition pipeline on a single image, streaming a blended
@@ -60,7 +79,7 @@ public partial class SeeThroughExtension
         string imageData, string layerModel, string depthModel, string quantMode,
         long seed, int resolution, int steps, int resolutionDepth,
         bool tblrSplit, bool useLama, bool groupOffload, bool cacheTagEmbeds, bool autoDownload,
-        string vaeCkpt, string unetCkpt)
+        bool removeBackground, string vaeCkpt, string unetCkpt)
     {
         // Normalize inputs.
         if (string.IsNullOrWhiteSpace(imageData))
@@ -196,6 +215,20 @@ public partial class SeeThroughExtension
             }
         };
 
+        // Optional background removal: route the loaded image through SwarmRemBg before decomposition.
+        if (removeBackground)
+        {
+            workflow["8"] = new JObject()
+            {
+                ["class_type"] = "SwarmRemBg",
+                ["inputs"] = new JObject()
+                {
+                    ["images"] = new JArray() { "3", 0 }
+                }
+            };
+            ((JObject)workflow["4"]["inputs"])["image"] = new JArray() { "8", 0 };
+        }
+
         await API.RunWebsocketHandlerCallWS<object>(async (Session s, object t, Action<JObject> send, bool isNew) =>
         {
             ComfyUIAPIAbstractBackend backend = ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault()
@@ -289,16 +322,20 @@ public partial class SeeThroughExtension
                 continue;
             }
             string filename = layer.Value<string>("filename");
+            bool empty = false;
             if (!string.IsNullOrWhiteSpace(filename))
             {
-                string dataUrl = await FetchAsDataUrl(viewBase, filename, cancel);
-                if (dataUrl is not null)
+                byte[] bytes = await FetchBytes(viewBase, filename, cancel);
+                if (bytes is not null)
                 {
-                    layer["dataurl"] = dataUrl;
+                    empty = IsLayerEmpty(bytes);
+                    layer["dataurl"] = $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
                 }
             }
+            // Mark near-transparent layers (See-through emits a fixed tag set, so absent parts come back empty) so the UI can hide them.
+            layer["empty"] = empty;
             string depthFilename = layer.Value<string>("depth_filename");
-            if (!string.IsNullOrWhiteSpace(depthFilename))
+            if (!empty && !string.IsNullOrWhiteSpace(depthFilename))
             {
                 string depthUrl = await FetchAsDataUrl(viewBase, depthFilename, cancel);
                 if (depthUrl is not null)
@@ -310,13 +347,51 @@ public partial class SeeThroughExtension
         return manifest;
     }
 
-    /// <summary>Fetches a file from a ComfyUI backend's /view output endpoint and returns it as a base64 PNG data URL.</summary>
-    public static async Task<string> FetchAsDataUrl(string viewBase, string filename, CancellationToken cancel)
+    /// <summary>Returns true if a PNG layer is effectively empty (fewer than 0.5% of pixels are meaningfully opaque),
+    /// which See-through emits for semantic tags absent from the input image.</summary>
+    public static bool IsLayerEmpty(byte[] pngBytes)
     {
         try
         {
-            byte[] bytes = await ComfyUIAPIAbstractBackend.HttpClient.GetByteArrayAsync($"{viewBase}/view?filename={Uri.EscapeDataString(filename)}&type=output", cancel);
-            return $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+            using SixLabors.ImageSharp.Image<Rgba32> img = SixLabors.ImageSharp.Image.Load<Rgba32>(pngBytes);
+            long total = (long)img.Width * img.Height;
+            long opaque = 0;
+            img.ProcessPixelRows(accessor =>
+            {
+                for (int y = 0; y < accessor.Height; y++)
+                {
+                    Span<Rgba32> row = accessor.GetRowSpan(y);
+                    for (int x = 0; x < row.Length; x++)
+                    {
+                        if (row[x].A > 16)
+                        {
+                            opaque++;
+                        }
+                    }
+                }
+            });
+            return total > 0 && opaque < total * 0.005;
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[See-through] Could not analyze layer alpha: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Fetches a file from a ComfyUI backend's /view output endpoint and returns it as a base64 PNG data URL.</summary>
+    public static async Task<string> FetchAsDataUrl(string viewBase, string filename, CancellationToken cancel)
+    {
+        byte[] bytes = await FetchBytes(viewBase, filename, cancel);
+        return bytes is null ? null : $"data:image/png;base64,{Convert.ToBase64String(bytes)}";
+    }
+
+    /// <summary>Fetches a file from a ComfyUI backend's /view output endpoint as raw bytes (null on failure).</summary>
+    public static async Task<byte[]> FetchBytes(string viewBase, string filename, CancellationToken cancel)
+    {
+        try
+        {
+            return await ComfyUIAPIAbstractBackend.HttpClient.GetByteArrayAsync($"{viewBase}/view?filename={Uri.EscapeDataString(filename)}&type=output", cancel);
         }
         catch (Exception ex)
         {

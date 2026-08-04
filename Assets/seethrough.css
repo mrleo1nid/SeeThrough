@@ -25,6 +25,13 @@
     font-size: 0.9em;
 }
 
+.seethrough-install {
+    padding: 0.5rem;
+    border: 1px dashed rgba(128, 128, 128, 0.5);
+    border-radius: 4px;
+    gap: 0.4rem;
+}
+
 .seethrough-row {
     display: flex;
     flex-direction: column;

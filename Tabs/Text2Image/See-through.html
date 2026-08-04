@@ -2,6 +2,10 @@
     <div class="seethrough-controls">
         <h3 class="translate">See-through — Anime Layer Decomposition</h3>
         <p class="seethrough-hint translate">Upload a single anime illustration to decompose it into depth-ordered semantic layers (hair, face, eyes, clothing, ...) and export a layered PSD for Live2D. First run downloads several GB of models and needs a lot of VRAM.</p>
+        <div class="seethrough-row seethrough-install" id="seethrough_install_row">
+            <button id="seethrough_install_btn" class="basic-button translate">Install See-through nodes (first-time setup)</button>
+            <span class="seethrough-hint translate">Installs the ComfyUI node pack into your backend. Needed once before the first decomposition.</span>
+        </div>
         <div class="seethrough-row">
             <input type="file" id="seethrough_file" accept="image/*" />
         </div>
@@ -11,8 +15,8 @@
         </div>
         <div class="seethrough-row seethrough-two">
             <label class="translate">Quantization<select id="seethrough_quant">
-                <option value="none">none (bf16)</option>
-                <option value="nf4">nf4 (~8GB VRAM)</option>
+                <option value="nf4" selected>nf4 (4-bit, low RAM/VRAM)</option>
+                <option value="none">none (bf16, needs ~6GB+ RAM)</option>
             </select></label>
             <label class="translate">Seed<input type="number" id="seethrough_seed" value="42" min="0" /></label>
         </div>
@@ -29,6 +33,7 @@
             <label><input type="checkbox" id="seethrough_cache" checked /> <span class="translate">Cache tag embeds</span></label>
             <label><input type="checkbox" id="seethrough_offload" /> <span class="translate">Group offload (low VRAM)</span></label>
             <label><input type="checkbox" id="seethrough_autodl" checked /> <span class="translate">Auto-download models</span></label>
+            <label><input type="checkbox" id="seethrough_rembg" /> <span class="translate">Remove background before decomposing (rembg)</span></label>
         </div>
         <details class="seethrough-adv">
             <summary class="translate">Advanced (custom checkpoints)</summary>
