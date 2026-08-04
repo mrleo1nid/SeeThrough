@@ -15,8 +15,9 @@
 }
 
 .seethrough-output {
-    flex: 2 1 420px;
+    flex: 1 1 420px;
     min-width: 320px;
+    max-width: 1000px;
 }
 
 .seethrough-hint {
@@ -118,20 +119,33 @@
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
+    align-items: flex-start;
 }
 
 .seethrough-preview-col {
-    flex: 1 1 200px;
+    flex: 0 1 320px;
+    min-width: 0;
 }
 
 .seethrough-preview-img {
-    max-width: 100%;
+    display: block;
+    width: 100%;
+    max-width: 320px;
     max-height: 340px;
+    object-fit: contain;
     border: 1px solid rgba(128, 128, 128, 0.4);
     border-radius: 4px;
     background-image: linear-gradient(45deg, #808080 25%, transparent 25%), linear-gradient(-45deg, #808080 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #808080 75%), linear-gradient(-45deg, transparent 75%, #808080 75%);
     background-size: 16px 16px;
     background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+}
+
+/* Hide preview/layer images that have no source yet, so browsers don't render a broken-image icon. */
+.seethrough-preview-img:not([src]),
+.seethrough-preview-img[src=""],
+.seethrough-layer-img:not([src]),
+.seethrough-layer-img[src=""] {
+    display: none;
 }
 
 .seethrough-downloads {
